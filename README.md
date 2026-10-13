@@ -51,6 +51,29 @@ atualizado em tempo real.
 - **Rascunho automático** no navegador e **Exportar/Importar** dos dados em
   `.json` (útil para reaproveitar os dados de um contrato em um termo aditivo).
 
+### Painel
+
+O botão **Painel**, no topo, abre gráficos com os documentos salvos:
+quantidade e valor por órgão (CNPJ), documentos criados por mês, tipos de
+documento, bens × serviços, PJ × PF, situação do preenchimento, contratados com
+mais documentos e os maiores valores. Dá para filtrar por período e tipo de
+documento. Clicar em um documento leva direto para a edição dele.
+
+### Número do contrato único
+
+O nº do contrato não pode se repetir no mesmo órgão (CNPJ): `012/2026/CBMPA`
+e `012/2026/CBMPA/FEBOM` podem existir juntos, mas dois `012/2026/CBMPA` não
+(zeros à esquerda são ignorados, então `12/2026` conta como `012/2026`). Para
+termos aditivos e apostilamentos, o que não pode se repetir é o nº do termo
+dentro do mesmo contrato. O aviso aparece enquanto você digita, e o programa
+não deixa salvar um número repetido.
+
+### Tema escuro
+
+O botão com o ícone de lua/sol, no topo, alterna entre os temas claro e
+escuro. A escolha fica guardada no navegador; sem escolha, segue o tema do
+sistema. A folha do documento na prévia continua branca, como no papel.
+
 ### Banco de dados
 
 Os documentos ficam em `dados/minutas.db` (SQLite, já incluso no Python). Para

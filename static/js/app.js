@@ -317,6 +317,12 @@
         if (s) { el.value = U.formatMoeda(s); dica.textContent = 'Calculado pela soma dos itens.'; return; }
         if (el.readOnly === false && estado.valores[c.key] === undefined) el.value = '';
       }
+      if (c.key === 'CONTRATO_NUMERO') el.closest('.campo').classList.toggle('erro', !!estado.conflito);
+      if (c.key === 'CONTRATO_NUMERO' && estado.conflito) {
+        dica.innerHTML = `<span class="dica-erro">Já existe <b>${esc(estado.conflito.titulo)}</b>. ${estado.tipo === 'contrato' ? 'O número não pode se repetir no mesmo órgão (CNPJ).' : 'Use outro nº de termo.'} `
+          + `<a href="#" data-abrir-doc="${estado.conflito.id}">Abrir o existente</a></span>`;
+        return;
+      }
       if (c.dicaDe) { dica.innerHTML = c.dicaDe(brutos); return; }
       if (c.sugestao && !valorBruto(c.key)) {
         const sug = c.sugestao(brutos);
@@ -415,6 +421,8 @@
       mudou();
       return;
     }
+    const abrir = e.target.closest('[data-abrir-doc]');
+    if (abrir) { e.preventDefault(); abrirDocumento(Number(abrir.dataset.abrirDoc)); return; }
     const rem = e.target.closest('[data-rem]');
     if (rem) {
       const key = rem.closest('[data-linhas]').dataset.linhas;
@@ -447,6 +455,7 @@
       atualizarVisibilidade();
       renderPrevia();
       salvarRascunho();
+      verificarNumero();
       if (estado.focado) destacarCampo(estado.focado, false);
     });
   }
@@ -593,6 +602,7 @@
       estado.tpl = t;
       $('#chip-arquivo').textContent = dados.arquivo;
       montarFormulario();
+      verificarNumero(true);
       renderPrevia();
       ajustarZoom(estado.zoom === null);
     } catch (err) {
@@ -784,6 +794,34 @@
     else desc.innerHTML = '<b>' + esc(tituloDocumento(estado.docInfo)) + '</b> — salvo em ' + esc(dataHora(estado.docInfo.atualizado_em));
   }
 
+  let verifTimer, ultimaVerif = '';
+  /** Consulta no banco se já existe documento com o mesmo número (mesmo órgão/CNPJ). */
+  function verificarNumero(forcar = false) {
+    clearTimeout(verifTimer);
+    verifTimer = setTimeout(async () => {
+      const numero = contexto().NUM_CONTRATO || '';
+      const q = new URLSearchParams({ tipo: estado.tipo, numero, num_termo: valorBruto('NUM_TERMO') || '', id: estado.docId || '' });
+      if (!forcar && q.toString() === ultimaVerif) return;
+      ultimaVerif = q.toString();
+      let conflito = null;
+      if (numero && numero !== U.SI) {
+        try { conflito = (await (await fetch('/api/documentos/verificar?' + q)).json()).conflito; } catch (e) { conflito = null; }
+      }
+      if (JSON.stringify(conflito) !== JSON.stringify(estado.conflito)) { estado.conflito = conflito; atualizarVisibilidade(); }
+    }, 250);
+  }
+
+  function avisarConflito(conflito, mensagem) {
+    estado.conflito = conflito;
+    atualizarVisibilidade();
+    modal({
+      tipo: 'erro', titulo: 'Número de contrato já cadastrado',
+      corpo: `<p>${esc(mensagem)}</p><p>Altere o nº do contrato${estado.tipo !== 'contrato' ? ' ou o nº do termo' : ''}, ou escolha o órgão correto (CBMPA, CEDEC ou FEBOM).</p>`,
+      acoes: [['Abrir o existente', 'btn-fantasma', () => { fecharModal(); abrirDocumento(conflito.id); }],
+        ['Corrigir o número', 'btn-primario', () => { fecharModal(); irParaCampo('CONTRATO_NUMERO'); }]],
+    });
+  }
+
   function exigirNumero() {
     if (String(valorBruto('CONTRATO_NUMERO') || '').trim()) return true;
     toast('Informe o nº do contrato para salvar.', true);
@@ -807,12 +845,15 @@
         r = await fetch('/api/documentos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
       }
       const res = await r.json().catch(() => ({ ok: false, erro: 'Resposta inválida do servidor.' }));
+      if (res.conflito) { avisarConflito(res.conflito, res.erro); return false; }
       if (!res.ok) throw new Error(res.erro || 'Não foi possível salvar.');
       estado.docId = res.documento.id;
       estado.docInfo = res.documento;
       estado.sujo = false;
+      estado.conflito = null;
       atualizarDocAtual();
       salvarRascunhoLocal();
+      verificarNumero(true);
       if (!silencioso) toast('Salvo: ' + tituloDocumento(res.documento));
       return true;
     } catch (err) {
@@ -914,6 +955,7 @@
         fecharModal();
         await fetch('/api/documentos/' + id, { method: 'DELETE' });
         if (estado.docId === id) { estado.docId = null; estado.docInfo = null; estado.sujo = true; atualizarDocAtual(); salvarRascunhoLocal(); }
+        verificarNumero(true);
         carregarLista();
         toast('Documento excluído.');
       }]],
@@ -1091,7 +1133,13 @@
     window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => ajustarZoom(true), 150); });
 
     atualizarDocAtual();
-    carregarModelo();
+    const abrirId = Number(new URLSearchParams(location.search).get('doc'));
+    carregarModelo().then(() => {
+      if (abrirId) {
+        history.replaceState(null, '', location.pathname);
+        if (abrirId !== estado.docId) abrirDocumento(abrirId);
+      }
+    });
   }
 
   iniciar();

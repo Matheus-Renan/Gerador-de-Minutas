@@ -97,6 +97,16 @@ def index():
     return render_template('index.html', config=CONFIG)
 
 
+@app.route('/painel')
+def painel():
+    return render_template('painel.html', config=CONFIG)
+
+
+@app.route('/api/painel')
+def dados_painel():
+    return jsonify(banco.para_painel())
+
+
 @app.route('/api/modelo')
 def api_modelo():
     caminho = arquivo_modelo(request.args.get('tipo'), request.args.get('objeto'), request.args.get('pessoa'))
@@ -152,6 +162,13 @@ def listar_documentos():
     return jsonify(banco.listar(request.args.get('q', '').strip()))
 
 
+@app.route('/api/documentos/verificar')
+def verificar_numero():
+    ignorar = request.args.get('id', type=int)
+    return jsonify({'conflito': banco.conflito(request.args.get('tipo', ''), request.args.get('numero', ''),
+                                                request.args.get('num_termo'), ignorar)})
+
+
 @app.route('/api/documentos/<int:doc_id>')
 def obter_documento(doc_id):
     doc = banco.obter(doc_id)
@@ -167,6 +184,14 @@ def salvar_documento(doc_id=None):
     erro = _validar_documento(doc)
     if erro:
         return jsonify({'ok': False, 'erro': erro}), 400
+    existente = banco.conflito_doc(doc, ignorar_id=doc_id)
+    if existente:
+        if doc['tipo'] == 'contrato':
+            regra = 'O número do contrato não pode se repetir no mesmo órgão (CNPJ).'
+        else:
+            regra = 'Esse contrato já tem um termo com esse número; use o próximo número de termo.'
+        return jsonify({'ok': False, 'conflito': existente,
+                        'erro': 'Já existe o documento "%s". %s' % (existente['titulo'], regra)}), 409
     if doc_id is None:
         doc_id = banco.criar(doc)
     elif not banco.atualizar(doc_id, doc):

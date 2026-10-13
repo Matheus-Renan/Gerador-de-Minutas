@@ -5,6 +5,7 @@ e o último contexto calculado (para gerar o .docx/.pdf sem abrir o formulário)
 """
 import json
 import os
+import re
 import sqlite3
 from contextlib import closing
 from datetime import datetime
@@ -31,6 +32,40 @@ CREATE INDEX IF NOT EXISTS idx_documentos_atualizado ON documentos (atualizado_e
 
 CAMPOS_RESUMO = ('id', 'tipo', 'objeto', 'pessoa', 'orgao', 'numero', 'num_termo', 'contratado',
                  'objeto_desc', 'pendentes', 'criado_em', 'atualizado_em')
+
+
+def chave_numero(numero):
+    """Normaliza o nº do contrato para comparação: '012/2026/cbmpa ' -> '12/2026/CBMPA'.
+    O sufixo do órgão faz parte do número, então 012/2026/CBMPA e 012/2026/CBMPA/FEBOM são diferentes."""
+    partes = [p.strip().upper() for p in re.sub(r'\s+', '', str(numero or '')).split('/') if p.strip()]
+    return '/'.join(str(int(p)) if p.isdigit() else p for p in partes)
+
+
+def chave_termo(num_termo):
+    t = re.sub(r'\D', '', str(num_termo or ''))
+    return str(int(t)) if t else ''
+
+
+def valor_numerico(texto):
+    """'1.234,56' -> 1234.56; vazio ou XXXXXXXX -> None."""
+    t = re.sub(r'[^\d,.-]', '', str(texto or ''))
+    if not t or not re.search(r'\d', t):
+        return None
+    if ',' in t:
+        t = t.replace('.', '').replace(',', '.')
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+TITULOS = {'contrato': 'Contrato', 'aditivo': 'Termo Aditivo', 'apostilamento': 'Termo de Apostilamento'}
+
+
+def titulo(tipo, numero, num_termo):
+    if tipo == 'contrato':
+        return 'Contrato nº %s' % numero
+    return '%s%s ao Contrato nº %s' % ((num_termo + 'º ') if num_termo else '', TITULOS.get(tipo, tipo), numero)
 
 
 class Banco:
@@ -65,6 +100,47 @@ class Banco:
             'dados_json': json.dumps(dados, ensure_ascii=False),
             'contexto_json': json.dumps(ctx, ensure_ascii=False),
         }
+
+    def conflito(self, tipo, numero, num_termo=None, ignorar_id=None):
+        """Procura outro documento com o mesmo número (e órgão, que está no sufixo).
+        Contratos: o número não pode se repetir. Termos: o nº do termo não pode se repetir no mesmo contrato."""
+        chave = chave_numero(numero)
+        if not chave:
+            return None
+        with closing(self._conexao()) as con:
+            linhas = con.execute('SELECT id, tipo, numero, num_termo FROM documentos WHERE tipo = ?', (tipo,)).fetchall()
+        for r in linhas:
+            if ignorar_id is not None and r['id'] == ignorar_id:
+                continue
+            if chave_numero(r['numero']) != chave:
+                continue
+            if tipo != 'contrato' and chave_termo(r['num_termo']) != chave_termo(num_termo):
+                continue
+            return {'id': r['id'], 'titulo': titulo(r['tipo'], r['numero'], r['num_termo'])}
+        return None
+
+    def conflito_doc(self, doc, ignorar_id=None):
+        cols = self._colunas(doc)
+        return self.conflito(cols['tipo'], cols['numero'], cols['num_termo'], ignorar_id)
+
+    def para_painel(self):
+        """Resumo de todos os documentos com o valor de cada um, para o painel."""
+        with closing(self._conexao()) as con:
+            linhas = con.execute('SELECT %s, contexto_json FROM documentos' % ', '.join(CAMPOS_RESUMO)).fetchall()
+        out = []
+        for r in linhas:
+            d = {k: r[k] for k in CAMPOS_RESUMO}
+            ctx = json.loads(r['contexto_json'] or '{}')
+            if d['tipo'] == 'contrato':
+                bruto = ctx.get('VALOR_GLOBAL')
+            elif ctx.get('PRECO_MODALIDADE') == 'mensal':
+                bruto = ctx.get('VALOR_ANUAL')
+            else:
+                bruto = ctx.get('NOVO_VALOR')
+            d['valor'] = valor_numerico(bruto)
+            d['titulo'] = titulo(d['tipo'], d['numero'], d['num_termo'])
+            out.append(d)
+        return out
 
     def listar(self, busca=''):
         sql = 'SELECT %s FROM documentos' % ', '.join(CAMPOS_RESUMO)
