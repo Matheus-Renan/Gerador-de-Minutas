@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gerador de Minutas — CBMPA</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/logo_cbmpa.png') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <header class="topo">
+    <div class="topo-marca">
+      <img src="{{ url_for('static', filename='img/logo_cbmpa.png') }}" alt="Brasão CBMPA" class="topo-logo">
+      <div>
+        <h1>Gerador de Minutas <span class="tag-dca">DCA</span></h1>
+        <p>Corpo de Bombeiros Militar do Pará · Diretoria de Contratações e Aquisições</p>
+      </div>
+    </div>
+    <div class="topo-acoes">
+      <button class="btn btn-fantasma" id="btn-importar" title="Carregar dados salvos em arquivo .json">
+        <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+        <span>Importar</span></button>
+      <button class="btn btn-fantasma" id="btn-exportar" title="Salvar os dados preenchidos em um arquivo .json">
+        <svg viewBox="0 0 24 24"><path d="M12 21V9m0 0-4 4m4-4 4 4M4 7V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2"/></svg>
+        <span>Exportar</span></button>
+      <button class="btn btn-fantasma" id="btn-limpar" title="Apagar todos os campos">
+        <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14"/></svg>
+        <span>Limpar</span></button>
+      <input type="file" id="arquivo-importar" accept=".json,application/json" hidden>
+    </div>
+  </header>
+
+  <nav class="abas-mobile" id="abas-mobile">
+    <button class="ativa" data-aba="form">Formulário</button>
+    <button data-aba="previa">Prévia do documento</button>
+  </nav>
+
+  <main class="layout" id="layout">
+    <!-- ===================== FORMULÁRIO ===================== -->
+    <section class="painel-form" id="painel-form">
+      <div class="form-rolagem" id="form-rolagem">
+        <div class="cartao cartao-modelo">
+          <div class="cartao-titulo-simples">
+            <h2>Modelo do documento</h2>
+            <span class="chip-arquivo" id="chip-arquivo" title="Arquivo de modelo utilizado">—</span>
+          </div>
+          <div class="seletor">
+            <span class="seletor-rotulo">Documento</span>
+            <div class="segmentado" data-grupo="tipo">
+              <button data-valor="contrato" class="ativo">Contrato</button>
+              <button data-valor="aditivo">Termo Aditivo</button>
+              <button data-valor="apostilamento">Apostilamento</button>
+            </div>
+          </div>
+          <div class="seletor-linha">
+            <div class="seletor">
+              <span class="seletor-rotulo">Objeto</span>
+              <div class="segmentado" data-grupo="objeto">
+                <button data-valor="bens" class="ativo">Aquisição de bens</button>
+                <button data-valor="servicos">Serviços</button>
+              </div>
+            </div>
+            <div class="seletor">
+              <span class="seletor-rotulo">Contratado</span>
+              <div class="segmentado" data-grupo="pessoa">
+                <button data-valor="pj" class="ativo">Pessoa jurídica</button>
+                <button data-valor="pf">Pessoa física</button>
+              </div>
+            </div>
+          </div>
+          <div class="progresso">
+            <div class="progresso-barra"><span id="progresso-preench"></span></div>
+            <span class="progresso-texto" id="progresso-texto">0 de 0 campos</span>
+          </div>
+        </div>
+
+        <div id="secoes"></div>
+      </div>
+
+      <div class="barra-gerar">
+        <label class="check-pdf"><input type="checkbox" id="chk-pdf" checked> Também gerar PDF</label>
+        <button class="btn btn-primario" id="btn-gerar">
+          <svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 14l2 2 4-4"/></svg>
+          Gerar documento
+        </button>
+      </div>
+    </section>
+
+    <!-- ===================== PRÉVIA ===================== -->
+    <section class="painel-previa" id="painel-previa">
+      <div class="previa-barra">
+        <div class="previa-titulo">
+          <span class="ponto-vivo"></span> Prévia em tempo real
+        </div>
+        <div class="previa-ferramentas">
+          <label class="interruptor-mini" title="Destacar os dados inseridos no documento">
+            <input type="checkbox" id="chk-destacar" checked><span></span> Destacar campos
+          </label>
+          <div class="zoom">
+            <button id="zoom-menos" title="Diminuir zoom">−</button>
+            <button id="zoom-valor" title="Ajustar à largura">100%</button>
+            <button id="zoom-mais" title="Aumentar zoom">+</button>
+          </div>
+        </div>
+      </div>
+      <div class="previa-rolagem" id="previa-rolagem">
+        <div class="previa-zoom" id="previa-zoom">
+          <div class="carregando" id="previa-carregando">Carregando modelo…</div>
+          <div id="previa-doc" class="previa-doc destacar"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===================== MODAIS ===================== -->
+  <div class="modal-fundo" id="modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-titulo">
+      <div class="modal-icone" id="modal-icone"></div>
+      <h3 id="modal-titulo"></h3>
+      <div class="modal-corpo" id="modal-corpo"></div>
+      <div class="modal-acoes" id="modal-acoes"></div>
+    </div>
+  </div>
+  <div class="toast" id="toast" hidden></div>
+
+  <script>window.CONFIG = {{ config|tojson }};</script>
+  <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/campos.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
