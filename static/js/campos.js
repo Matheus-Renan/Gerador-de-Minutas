@@ -14,7 +14,8 @@
     {
       id: 'processo', titulo: 'Processo e documento', icone: 'doc',
       campos: [
-        { key: 'NUM_CONTRATO', label: 'Nº do contrato', placeholder: 'Ex.: 012/2026/CBMPA', meia: true },
+        { key: 'CONTRATO_NUMERO', label: 'Nº/ano do contrato', placeholder: 'Ex.: 012/2026', meia: true,
+          dicaDe: v => { const n = numeroContrato(v); return n ? 'No documento: <b>' + escHtml(n) + '</b>' : 'O sufixo do órgão (' + sufixo(v) + ') é incluído automaticamente.'; } },
         { key: 'NUM_TERMO', label: 'Nº do termo', tipo: 'inteiro', placeholder: 'Ex.: 1', sufixo: 'º', meia: true,
           dica: 'Número de ordem: 1º, 2º, 3º termo...' },
         { key: 'NUM_PAE', label: 'Nº do PAE / Processo', placeholder: 'Ex.: 2026/123456', meia: true },
@@ -33,13 +34,10 @@
       id: 'contratante', titulo: 'Contratante', icone: 'predio',
       campos: [
         { key: 'ORGAO', label: 'Órgão contratante', tipo: 'select', padrao: 'CBMPA',
-          opcoes: Object.entries(CFG.orgaos).map(([k, o]) => [k, o.rotulo]) },
-        { key: 'ORGAO_CNPJ', label: 'CNPJ do órgão', tipo: 'cnpj', meia: true },
-        { key: 'ORGAO_UASG', label: 'UASG', meia: true },
-        { key: 'AUTORIDADE_NOME', label: 'Autoridade signatária', padrao: A.nome, grupo: 'Autoridade signatária' },
-        { key: 'AUTORIDADE_POSTO', label: 'Posto (por extenso)', padrao: A.posto, meia: true, grupo: 'Autoridade signatária' },
-        { key: 'AUTORIDADE_POSTO_SIGLA', label: 'Posto (sigla)', padrao: A.posto_sigla, meia: true, grupo: 'Autoridade signatária' },
-        { key: 'AUTORIDADE_CARGO', label: 'Cargo', padrao: A.cargo, tipo: 'textarea', linhas: 2, grupo: 'Autoridade signatária' },
+          opcoes: Object.entries(CFG.orgaos).map(([k, o]) => [k, o.rotulo]),
+          dicaDe: v => { const o = CFG.orgaos[v.ORGAO] || {}; return 'CNPJ <b>' + escHtml(o.cnpj || '—') + '</b> · UASG <b>' + escHtml(o.uasg || '—') + '</b> · Contrato nº …/<b>' + escHtml(o.sufixo || '') + '</b>'; } },
+        { key: 'AUTORIDADE_INFO', label: 'Representante do contratante', tipo: 'info', sempre: true,
+          texto: A.nome + ' – ' + A.posto + ' · ' + A.cargo },
       ],
     },
     {
@@ -216,17 +214,37 @@
     IGPM: 'Índice Geral de Preços – Mercado (IGP-M)/FGV',
   };
 
+  const escHtml = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const orgao = v => CFG.orgaos[v.ORGAO] || CFG.orgaos.CBMPA || {};
+  const sufixo = v => orgao(v).sufixo || '';
+  const SUFIXOS = Object.values(CFG.orgaos).map(o => o.sufixo).filter(Boolean).sort((x, y) => y.length - x.length);
+  function numeroContrato(v) {
+    let n = String(v.CONTRATO_NUMERO || '').trim();
+    if (!n || n === U.SI) return n;
+    // se o usuário já digitou o sufixo de algum órgão, troca pelo do órgão escolhido
+    for (const suf of SUFIXOS) {
+      if (n.toUpperCase().endsWith('/' + suf)) { n = n.slice(0, -(suf.length + 1)); break; }
+    }
+    return n.replace(/\/+$/, '') + '/' + sufixo(v);
+  }
+
   const vazio = v => v === undefined || v === null || v === '';
   const si = v => v === U.SI;
   const moedaExt = v => (si(v) ? U.SI : (vazio(v) ? '' : U.moedaExtenso(v)));
 
   /* Variáveis calculadas: label (para a prévia), deps (campos de origem) e fn(valores, contexto). */
   const DERIVADAS = {
-    ORGAO_NOME: { label: 'Órgão', deps: ['ORGAO'], fn: v => (CFG.orgaos[v.ORGAO] || {}).nome || '' },
-    ORGAO_INTERMEDIO: { label: 'Órgão', deps: ['ORGAO'], fn: v => (CFG.orgaos[v.ORGAO] || {}).intermedio || '' },
-    AUTORIDADE_ASSINATURA: { label: 'Autoridade', deps: ['AUTORIDADE_NOME', 'AUTORIDADE_POSTO_SIGLA'],
-      fn: v => vazio(v.AUTORIDADE_NOME) ? '' : v.AUTORIDADE_NOME.toLocaleUpperCase('pt-BR') +
-        (v.AUTORIDADE_POSTO_SIGLA ? ' - ' + v.AUTORIDADE_POSTO_SIGLA : '') },
+    NUM_CONTRATO: { label: 'Nº do contrato', deps: ['CONTRATO_NUMERO', 'ORGAO'], fn: v => numeroContrato(v) },
+    ORGAO_NOME: { label: 'Órgão', deps: ['ORGAO'], fn: v => orgao(v).nome || '' },
+    ORGAO_INTERMEDIO: { label: 'Órgão', deps: ['ORGAO'], fn: v => orgao(v).intermedio || '' },
+    ORGAO_ORCAMENTO: { label: 'Órgão', deps: ['ORGAO'], fn: v => orgao(v).orcamento || '' },
+    ORGAO_CNPJ: { label: 'CNPJ do órgão', deps: ['ORGAO'], fn: v => orgao(v).cnpj || '' },
+    ORGAO_UASG: { label: 'UASG', deps: ['ORGAO'], fn: v => orgao(v).uasg || '' },
+    AUTORIDADE_NOME: { label: 'Autoridade', deps: ['ORGAO'], fn: () => A.nome },
+    AUTORIDADE_POSTO: { label: 'Posto', deps: ['ORGAO'], fn: () => A.posto },
+    AUTORIDADE_CARGO: { label: 'Cargo', deps: ['ORGAO'], fn: () => A.cargo },
+    AUTORIDADE_ASSINATURA: { label: 'Autoridade', deps: ['ORGAO'],
+      fn: () => A.nome.toLocaleUpperCase('pt-BR') + ' - ' + A.posto },
     OBJETO_CAP: { label: 'Objeto', deps: ['OBJETO'], fn: v => vazio(v.OBJETO) ? '' : v.OBJETO.charAt(0).toLocaleUpperCase('pt-BR') + v.OBJETO.slice(1) },
     FUNDAMENTO_ORIGEM: { label: 'Licitação / fundamento', deps: ['FUNDAMENTO', 'FORMA_CONTRATACAO'],
       fn: v => vazio(v.FUNDAMENTO) ? '' : (v.FORMA_CONTRATACAO === 'direta' ? 'de contratação direta por ' : 'do ') + v.FUNDAMENTO },

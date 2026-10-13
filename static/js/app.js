@@ -45,10 +45,6 @@
     const c = CAMPO[key];
     if (estado.si.has(key)) return U.SI;
     let v = estado.valores[key];
-    if (v === undefined && (key === 'ORGAO_CNPJ' || key === 'ORGAO_UASG')) {
-      const o = CFG.orgaos[valorBruto('ORGAO')] || {};
-      v = key === 'ORGAO_CNPJ' ? o.cnpj : o.uasg;
-    }
     if (v === undefined && c && c.padrao !== undefined) v = padraoDe(c);
     return v === undefined ? '' : v;
   }
@@ -111,6 +107,7 @@
 
   function campoVisivel(c, brutos) {
     if (c.oculto) return false;
+    if (c.sempre) return true;
     if (!usadoNoModelo(c.key)) return false;
     if (c.mostrarSe && !c.mostrarSe(brutos, estado.vars)) return false;
     return true;
@@ -157,6 +154,10 @@
         <span class="interruptor-texto">${esc(rotulo(c))}</span></label></div>`;
     }
     if (c.tipo === 'itens') return htmlItens(c);
+    if (c.tipo === 'info') {
+      return `<div class="campo campo-info" data-key="${c.key}"><span class="info-rotulo">${esc(rotulo(c))}</span>
+        <span class="info-texto">${esc(c.texto)}</span></div>`;
+    }
     const semSI = ['select'].includes(c.tipo) || c.opcional;
     const dica = porObjeto(c.dica);
     return `<div class="campo${largura}" data-key="${c.key}">
@@ -314,6 +315,7 @@
         if (s) { el.value = U.formatMoeda(s); dica.textContent = 'Calculado pela soma dos itens.'; return; }
         if (el.readOnly === false && estado.valores[c.key] === undefined) el.value = '';
       }
+      if (c.dicaDe) { dica.innerHTML = c.dicaDe(brutos); return; }
       if (c.sugestao && !valorBruto(c.key)) {
         const sug = c.sugestao(brutos);
         if (sug) { dica.innerHTML = 'Sugestão automática: <b>' + esc(c.tipo === 'data' ? U.formatData(sug) : sug) + '</b> — usada se o campo ficar em branco.'; return; }
@@ -325,7 +327,7 @@
   function preenchido(c) {
     if (estado.si.has(c.key)) return true;
     if (c.tipo === 'itens') return (estado.valores[c.key] || []).length > 0;
-    if (c.tipo === 'toggle' || c.tipo === 'select') return true;
+    if (c.tipo === 'toggle' || c.tipo === 'select' || c.tipo === 'info') return true;
     if (c.somaDe && somaItens(c)) return true;
     const v = valorBruto(c.key);
     return v !== '' && v !== undefined;
@@ -336,7 +338,7 @@
     SECOES.forEach(s => {
       let t = 0, o = 0;
       s.campos.forEach(c => {
-        if (c.opcional || c.tipo === 'toggle' || c.tipo === 'select') return;
+        if (c.opcional || c.tipo === 'toggle' || c.tipo === 'select' || c.tipo === 'info') return;
         const vis = campoVisivel(c, brutos) || (c.oculto && usadoNoModelo(c.key));
         if (!vis) return;
         t++; if (preenchido(c)) o++;
@@ -375,17 +377,6 @@
       const masc = { cpf: 'cpf', cnpj: 'cnpj', telefone: 'telefone', moeda: 'moeda', inteiro: 'inteiro', percentual: 'percentual' }[c.tipo];
       if (masc) mascarar(el, U.MASCARAS[masc]);
       estado.valores[key] = el.value;
-    }
-    if (key === 'ORGAO') {
-      const o = CFG.orgaos[el.value] || {};
-      ['ORGAO_CNPJ', 'ORGAO_UASG'].forEach((k, i) => {
-        const v = i ? o.uasg : o.cnpj;
-        estado.valores[k] = v || '';
-        estado.si.delete(k);
-        const inp = $('#f_' + k);
-        if (inp) { inp.value = v || ''; inp.disabled = false; }
-        const s = $(`[data-si="${k}"]`); if (s) s.checked = false;
-      });
     }
     mudou();
   }
@@ -695,7 +686,7 @@
 
   function exportar() {
     const d = dadosParaSalvar();
-    const nome = 'dados_' + (estado.valores.NUM_CONTRATO || 'minuta').replace(/[^\w-]+/g, '-') + '.json';
+    const nome = 'dados_' + (estado.valores.CONTRATO_NUMERO || 'minuta').replace(/[^\w-]+/g, '-') + '.json';
     const url = URL.createObjectURL(new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' }));
     const a = Object.assign(document.createElement('a'), { href: url, download: nome });
     document.body.appendChild(a); a.click(); a.remove();

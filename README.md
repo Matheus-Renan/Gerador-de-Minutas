@@ -74,5 +74,5 @@ Digite cada marcação de uma vez, sem mudar a formatação no meio dela, para o
 Word não a dividir. A prévia é lida direto do `.docx`, então as alterações
 aparecem ao recarregar a página.
 
-Os CNPJs e as UASGs da CEDEC e do FEBOM estão em branco em `config.json`:
-preencha-os lá para que entrem automaticamente ao escolher o órgão.
+Órgãos (nome, CNPJ, UASG, sufixo do número do contrato e textos de cada
+órgão) e a autoridade signatária ficam em `config.json`: ajuste lá quando mudar.

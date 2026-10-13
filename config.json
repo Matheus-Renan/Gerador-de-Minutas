@@ -2,30 +2,35 @@
   "orgaos": {
     "CBMPA": {
       "rotulo": "CBMPA – Corpo de Bombeiros Militar do Pará",
+      "sufixo": "CBMPA",
       "nome": "Corpo de Bombeiros Militar do Pará (CBMPA)",
-      "intermedio": "do Corpo de Bombeiros Militar do Pará – CBMPA",
+      "intermedio": "do Corpo de Bombeiros Militar do Pará",
+      "orcamento": "do Corpo de Bombeiros Militar do Pará",
       "cnpj": "34.847.236/0001-80",
       "uasg": "925853"
     },
     "CEDEC": {
       "rotulo": "CEDEC – Coordenadoria Estadual de Proteção e Defesa Civil",
-      "nome": "Coordenadoria Estadual de Proteção e Defesa Civil (CEDEC)",
-      "intermedio": "da Coordenadoria Estadual de Proteção e Defesa Civil – CEDEC do Corpo de Bombeiros Militar do Pará",
-      "cnpj": "",
-      "uasg": ""
+      "sufixo": "CBMPA/CEDEC",
+      "nome": "Coordenadoria Estadual de Defesa Civil (CEDEC)",
+      "intermedio": "da Coordenadoria Estadual de Proteção e Defesa Civil - CEDEC do Corpo de Bombeiros Militar do Pará",
+      "orcamento": "da Coordenadoria Estadual de Defesa Civil",
+      "cnpj": "15.513.102/0001-88",
+      "uasg": "929902"
     },
     "FEBOM": {
       "rotulo": "FEBOM – Fundo Especial de Bombeiros",
+      "sufixo": "CBMPA/FEBOM",
       "nome": "Fundo Especial de Bombeiros (FEBOM)",
       "intermedio": "do Fundo Especial de Bombeiros – FEBOM do Corpo de Bombeiros Militar do Pará",
-      "cnpj": "",
-      "uasg": ""
+      "orcamento": "do Fundo Especial de Bombeiros",
+      "cnpj": "44.754.155/0001-99",
+      "uasg": "929377"
     }
   },
   "autoridade": {
     "nome": "Jayme de Aviz Benjó",
-    "posto": "CORONEL QOBM",
-    "posto_sigla": "CEL QOBM",
+    "posto": "CEL QOBM",
     "cargo": "Comandante-Geral do CBMPA e Coordenador Estadual de Proteção e Defesa Civil"
   },
   "pasta_saida": "Contratos_Gerados",

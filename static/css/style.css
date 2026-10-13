@@ -175,6 +175,11 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .piscar { animation: piscar 1.2s ease-out; }
 @keyframes piscar { 0%, 30% { background: #fff4d6; box-shadow: 0 0 0 6px #fff4d6; } 100% { background: transparent; box-shadow: 0 0 0 6px transparent; } }
 
+/* --- informação fixa */
+.campo-info { background: var(--azul-claro); border-radius: 9px; padding: 9px 12px; gap: 2px; }
+.info-rotulo { font-size: 11px; font-weight: 700; color: var(--azul); text-transform: uppercase; letter-spacing: .05em; }
+.info-texto { font-size: 13px; color: var(--texto); line-height: 1.4; }
+
 /* --- interruptor */
 .campo-toggle { padding: 2px 0; }
 .interruptor { display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600; font-size: 13.5px; }
