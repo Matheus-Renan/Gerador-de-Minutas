@@ -672,7 +672,7 @@
     $('#zoom-valor').textContent = Math.round(estado.zoom * 100) + '%';
   }
 
-  // ------------------------------------------------------------------ rascunho / importar / exportar
+  // ------------------------------------------------------------------ rascunho
   function dadosParaSalvar() {
     return { versao: 1, tipo: estado.tipo, objeto: estado.objeto, pessoa: estado.pessoa,
       valores: estado.valores, si: [...estado.si] };
@@ -708,30 +708,6 @@
         estado.sujo = !!d.sujo;
       }
     } catch (e) { /* ignora rascunho corrompido */ }
-  }
-
-  function exportar() {
-    const d = dadosParaSalvar();
-    const nome = 'dados_' + (estado.valores.CONTRATO_NUMERO || 'minuta').replace(/[^\w-]+/g, '-') + '.json';
-    const url = URL.createObjectURL(new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' }));
-    const a = Object.assign(document.createElement('a'), { href: url, download: nome });
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toast('Dados exportados para ' + nome);
-  }
-
-  function importar(arquivo) {
-    const leitor = new FileReader();
-    leitor.onload = () => {
-      try {
-        aplicarDados(JSON.parse(leitor.result));
-        estado.docId = null; estado.docInfo = null; estado.sujo = true;
-        atualizarDocAtual();
-        carregarModelo();
-        toast('Dados importados com sucesso.');
-      } catch (e) { toast('Arquivo inválido.', true); }
-    };
-    leitor.readAsText(arquivo);
   }
 
   // ------------------------------------------------------------------ geração
@@ -1105,11 +1081,8 @@
     window.addEventListener('beforeunload', e => {
       if (estado.sujo && estado.docId) { e.preventDefault(); e.returnValue = ''; }
     });
-    $('#btn-exportar').addEventListener('click', exportar);
-    $('#btn-importar').addEventListener('click', () => $('#arquivo-importar').click());
-    $('#arquivo-importar').addEventListener('change', e => { if (e.target.files[0]) importar(e.target.files[0]); e.target.value = ''; });
     $('#btn-limpar').addEventListener('click', () => modal({
-      tipo: 'aviso', titulo: 'Limpar todos os campos?', corpo: '<p>Os dados preenchidos serão apagados. Se quiser guardá-los, use <b>Exportar</b> antes.</p>',
+      tipo: 'aviso', titulo: 'Limpar todos os campos?', corpo: '<p>Os dados preenchidos serão apagados. Se quiser guardá-los, clique em <b>Salvar</b> antes.</p>',
       acoes: [['Cancelar', 'btn-fantasma', fecharModal], ['Limpar', 'btn-primario', () => {
         estado.valores = {}; estado.si = new Set(); estado.sujo = true; atualizarDocAtual(); fecharModal(); montarFormulario(); renderPrevia(); salvarRascunho(); toast('Campos limpos.');
       }]],

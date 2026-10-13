@@ -48,8 +48,8 @@ atualizado em tempo real.
 - **Fim da vigência** sugerido a partir do início e da quantidade de meses.
 - **S/I (sem informação)**: marca o campo como `XXXXXXXX`. Campos vazios também
   saem como `XXXXXXXX` (o programa avisa antes de gerar).
-- **Rascunho automático** no navegador e **Exportar/Importar** dos dados em
-  `.json` (útil para reaproveitar os dados de um contrato em um termo aditivo).
+- **Rascunho automático** no navegador: se a página for fechada sem salvar, o
+  que estava preenchido continua lá ao abrir de novo.
 
 ### Painel
 
