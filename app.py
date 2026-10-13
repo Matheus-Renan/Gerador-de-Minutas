@@ -5,6 +5,7 @@ preenche os modelos .docx (docxtpl) e converte para PDF.
 
     python app.py      ->  abre http://127.0.0.1:5000
 """
+import io
 import json
 import os
 import platform
@@ -12,14 +13,15 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import webbrowser
-from datetime import datetime
 
 from docxtpl import DocxTemplate
-from flask import Flask, abort, jsonify, render_template, request, send_from_directory
+from flask import Flask, abort, jsonify, render_template, request, send_file
 
 import conversor_preview
+from banco import Banco
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 PASTA_MODELOS = os.path.join(BASE, 'modelos')
@@ -27,7 +29,7 @@ PASTA_MODELOS = os.path.join(BASE, 'modelos')
 with open(os.path.join(BASE, 'config.json'), encoding='utf-8') as fh:
     CONFIG = json.load(fh)
 
-PASTA_SAIDA = os.path.join(BASE, CONFIG.get('pasta_saida', 'Contratos_Gerados'))
+banco = Banco(os.path.join(BASE, 'dados', 'minutas.db'))
 
 TIPOS = {'contrato': 'CONTRATO', 'aditivo': 'ADITIVO', 'apostilamento': 'APOSTILAMENTO'}
 OBJETOS = {'bens': 'BENS', 'servicos': 'SERVICOS'}
@@ -108,62 +110,94 @@ def api_modelo():
     return jsonify(cache[1])
 
 
-@app.route('/api/gerar', methods=['POST'])
-def api_gerar():
-    dados = request.get_json(force=True)
-    tipo = dados.get('tipo')
-    caminho = arquivo_modelo(tipo, dados.get('objeto'), dados.get('pessoa'))
-    contexto = dados.get('contexto') or {}
+def _validar_documento(doc):
+    if not isinstance(doc, dict):
+        abort(400, 'Dados inválidos.')
+    if doc.get('tipo') not in TIPOS or doc.get('objeto') not in OBJETOS or doc.get('pessoa') not in PESSOAS:
+        abort(400, 'Combinação de modelo inválida.')
+    valores = (doc.get('dados') or {}).get('valores') or {}
+    if not str(valores.get('CONTRATO_NUMERO') or '').strip():
+        return 'Informe o número do contrato para salvar.'
+    return None
 
-    try:
-        doc = DocxTemplate(caminho)
-        doc.render(contexto, autoescape=True)
-    except Exception as exc:
-        return jsonify({'ok': False, 'erro': 'Erro ao preencher o modelo: %s' % exc}), 500
 
-    os.makedirs(PASTA_SAIDA, exist_ok=True)
-    numero = nome_seguro(str(contexto.get('NUM_CONTRATO', '')).replace('/', '-'), 30)
-    if tipo != 'contrato' and contexto.get('NUM_TERMO'):
+def nome_arquivo(doc):
+    contexto = doc.get('contexto') or {}
+    numero = nome_seguro(str(contexto.get('NUM_CONTRATO', '')).replace('/', '-'), 40)
+    if doc['tipo'] != 'contrato' and contexto.get('NUM_TERMO'):
         numero = '%s-%s' % (nome_seguro(str(contexto['NUM_TERMO']), 5), numero)
     contratado = nome_seguro(contexto.get('NOME_CONTRATADA', ''), 40)
-    base = '%s_%s_%s' % (PREFIXO_ARQUIVO[tipo], numero, contratado)
-    caminho_docx = os.path.join(PASTA_SAIDA, base + '.docx')
-    if os.path.exists(caminho_docx):
-        base += datetime.now().strftime('_%Y%m%d-%H%M%S')
-        caminho_docx = os.path.join(PASTA_SAIDA, base + '.docx')
+    return '%s_%s_%s' % (PREFIXO_ARQUIVO[doc['tipo']], numero, contratado)
+
+
+def gerar_arquivo(doc, formato):
+    """Gera o .docx (e o .pdf, se pedido) numa pasta temporária e devolve (bytes, nome do arquivo).
+    Nada fica gravado no computador: o arquivo vai direto para o download do navegador."""
+    modelo = DocxTemplate(arquivo_modelo(doc['tipo'], doc['objeto'], doc['pessoa']))
+    modelo.render(doc.get('contexto') or {}, autoescape=True)
+    base = nome_arquivo(doc)
+    with tempfile.TemporaryDirectory(prefix='minuta_') as pasta:
+        caminho = os.path.join(pasta, base + '.docx')
+        modelo.save(caminho)
+        if formato == 'pdf':
+            caminho, _ = converter_pdf(caminho)
+            if not caminho:
+                return None, None
+        with open(caminho, 'rb') as fh:
+            return fh.read(), os.path.basename(caminho)
+
+
+@app.route('/api/documentos')
+def listar_documentos():
+    return jsonify(banco.listar(request.args.get('q', '').strip()))
+
+
+@app.route('/api/documentos/<int:doc_id>')
+def obter_documento(doc_id):
+    doc = banco.obter(doc_id)
+    if not doc:
+        return jsonify({'ok': False, 'erro': 'Documento não encontrado.'}), 404
+    return jsonify(doc)
+
+
+@app.route('/api/documentos', methods=['POST'])
+@app.route('/api/documentos/<int:doc_id>', methods=['PUT'])
+def salvar_documento(doc_id=None):
+    doc = request.get_json(force=True, silent=True)
+    erro = _validar_documento(doc)
+    if erro:
+        return jsonify({'ok': False, 'erro': erro}), 400
+    if doc_id is None:
+        doc_id = banco.criar(doc)
+    elif not banco.atualizar(doc_id, doc):
+        return jsonify({'ok': False, 'erro': 'Documento não encontrado (pode ter sido excluído).'}), 404
+    return jsonify({'ok': True, 'documento': {k: v for k, v in banco.obter(doc_id).items()
+                                              if k not in ('dados', 'contexto')}})
+
+
+@app.route('/api/documentos/<int:doc_id>', methods=['DELETE'])
+def excluir_documento(doc_id):
+    return jsonify({'ok': banco.excluir(doc_id)})
+
+
+@app.route('/api/documentos/<int:doc_id>/baixar/<formato>')
+def baixar_documento(doc_id, formato):
+    if formato not in ('docx', 'pdf'):
+        abort(404)
+    doc = banco.obter(doc_id)
+    if not doc:
+        return jsonify({'ok': False, 'erro': 'Documento não encontrado.'}), 404
     try:
-        doc.save(caminho_docx)
-    except PermissionError:
-        return jsonify({'ok': False, 'erro': 'Não foi possível salvar: o arquivo está aberto em outro programa?'}), 500
-
-    resposta = {'ok': True, 'docx': os.path.basename(caminho_docx), 'pasta': PASTA_SAIDA}
-    if dados.get('pdf', True):
-        pdf, erro = converter_pdf(caminho_docx)
-        resposta['pdf'] = os.path.basename(pdf) if pdf else None
-        if erro and not pdf:
-            resposta['aviso_pdf'] = ('PDF não gerado (é necessário Microsoft Word ou LibreOffice instalado). '
-                                     'O arquivo Word foi salvo normalmente.')
-    return jsonify(resposta)
-
-
-@app.route('/arquivos/<path:nome>')
-def baixar(nome):
-    return send_from_directory(PASTA_SAIDA, nome, as_attachment=request.args.get('baixar') == '1')
-
-
-@app.route('/api/abrir-pasta', methods=['POST'])
-def abrir_pasta():
-    os.makedirs(PASTA_SAIDA, exist_ok=True)
-    try:
-        if platform.system() == 'Windows':
-            os.startfile(PASTA_SAIDA)  # noqa: S606 - abre o Explorer local
-        elif platform.system() == 'Darwin':
-            subprocess.Popen(['open', PASTA_SAIDA])
-        else:
-            subprocess.Popen(['xdg-open', PASTA_SAIDA])
-        return jsonify({'ok': True})
+        conteudo, nome = gerar_arquivo(doc, formato)
     except Exception as exc:
-        return jsonify({'ok': False, 'erro': str(exc), 'pasta': PASTA_SAIDA})
+        return jsonify({'ok': False, 'erro': 'Erro ao preencher o modelo: %s' % exc}), 500
+    if conteudo is None:
+        return jsonify({'ok': False, 'erro': 'Não foi possível gerar o PDF: é preciso ter o Microsoft Word '
+                                             'ou o LibreOffice instalado no computador onde o programa roda. '
+                                             'O Word (.docx) pode ser baixado normalmente.'}), 500
+    mime = ('application/pdf' if formato == 'pdf' else
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    return send_file(io.BytesIO(conteudo), mimetype=mime, as_attachment=True, download_name=nome)
 
 
 def main():

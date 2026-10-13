@@ -19,6 +19,7 @@
     banco: '<path d="M3 10 12 4l9 6M5 10v8M9 10v8M15 10v8M19 10v8M3 21h18"/>',
     grafico: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
     seta: '<path d="m6 9 6 6 6-6"/>',
+    lixo: '<path d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14"/>',
   };
   const svg = (nome, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24">${ICONES[nome] || ''}</svg>`;
 
@@ -27,6 +28,7 @@
     tipo: 'contrato', objeto: 'bens', pessoa: 'pj',
     valores: {}, si: new Set(), abertas: new Set(['processo']),
     modelo: null, vars: new Set(), tpl: null, zoom: null,
+    docId: null, docInfo: null, sujo: false,
   };
   const TODOS_CAMPOS = SECOES.flatMap(s => s.campos);
   const CAMPO = Object.fromEntries(TODOS_CAMPOS.map(c => [c.key, c]));
@@ -370,6 +372,7 @@
     }
     if (!el.id || !el.id.startsWith('f_')) return;
     const key = el.id.slice(2);
+    const caixa = el.closest('.campo'); if (caixa) caixa.classList.remove('erro');
     const c = CAMPO[key];
     if (!c) return;
     if (c.tipo === 'toggle') estado.valores[key] = el.checked;
@@ -439,6 +442,8 @@
     agendado = true;
     requestAnimationFrame(() => {
       agendado = false;
+      estado.sujo = true;
+      atualizarDocAtual();
       atualizarVisibilidade();
       renderPrevia();
       salvarRascunho();
@@ -663,9 +668,14 @@
       valores: estado.valores, si: [...estado.si] };
   }
 
-  function salvarRascunho() {
-    try { localStorage.setItem(CHAVE_RASCUNHO, JSON.stringify(dadosParaSalvar())); } catch (e) { /* sem armazenamento */ }
+  function salvarRascunhoLocal() {
+    try {
+      localStorage.setItem(CHAVE_RASCUNHO, JSON.stringify(Object.assign(dadosParaSalvar(),
+        { docId: estado.docId, docInfo: estado.docInfo, sujo: estado.sujo })));
+    } catch (e) { /* sem armazenamento */ }
   }
+
+  function salvarRascunho() { salvarRascunhoLocal(); }
 
   function aplicarDados(d) {
     if (!d || typeof d !== 'object') return;
@@ -680,7 +690,13 @@
   function carregarRascunho() {
     try {
       const s = localStorage.getItem(CHAVE_RASCUNHO);
-      if (s) aplicarDados(JSON.parse(s));
+      if (s) {
+        const d = JSON.parse(s);
+        aplicarDados(d);
+        estado.docId = d.docId || null;
+        estado.docInfo = d.docInfo || null;
+        estado.sujo = !!d.sujo;
+      }
     } catch (e) { /* ignora rascunho corrompido */ }
   }
 
@@ -699,6 +715,8 @@
     leitor.onload = () => {
       try {
         aplicarDados(JSON.parse(leitor.result));
+        estado.docId = null; estado.docInfo = null; estado.sujo = true;
+        atualizarDocAtual();
         carregarModelo();
         toast('Dados importados com sucesso.');
       } catch (e) { toast('Arquivo inválido.', true); }
@@ -730,56 +748,222 @@
     });
   }
 
-  async function gerar(confirmado = false) {
+  /** Contexto final do documento: campos vazios viram XXXXXXXX (exceto os opcionais). */
+  function contextoFinal() {
     const ctx = contexto();
-    const faltam = camposFaltando(ctx);
+    estado.vars.forEach(v => {
+      const d = DERIVADAS[v], c = CAMPO[v];
+      if ((d && d.opcional) || (c && c.opcional)) return;
+      if (ctx[v] === '' || ctx[v] === undefined) ctx[v] = U.SI;
+    });
+    return ctx;
+  }
+
+  function tituloDocumento(info) {
+    const nomes = { contrato: 'Contrato', aditivo: 'Termo Aditivo', apostilamento: 'Termo de Apostilamento' };
+    const n = info.numero || 's/ nº';
+    if (info.tipo === 'contrato') return 'Contrato nº ' + n;
+    return (info.num_termo ? info.num_termo + 'º ' : '') + nomes[info.tipo] + ' ao Contrato nº ' + n;
+  }
+
+  function dataHora(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d)) return iso;
+    return d.toLocaleDateString('pt-BR') + ' às ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function atualizarDocAtual() {
+    const box = $('#doc-atual');
+    if (!box) return;
+    const desc = $('#doc-atual-desc');
+    box.classList.toggle('salvo', !!estado.docId && !estado.sujo);
+    box.classList.toggle('alterado', !!estado.docId && estado.sujo);
+    if (!estado.docId) desc.textContent = 'Novo documento — ainda não salvo';
+    else if (estado.sujo) desc.innerHTML = '<b>' + esc(tituloDocumento(estado.docInfo)) + '</b> — alterações não salvas';
+    else desc.innerHTML = '<b>' + esc(tituloDocumento(estado.docInfo)) + '</b> — salvo em ' + esc(dataHora(estado.docInfo.atualizado_em));
+  }
+
+  function exigirNumero() {
+    if (String(valorBruto('CONTRATO_NUMERO') || '').trim()) return true;
+    toast('Informe o nº do contrato para salvar.', true);
+    irParaCampo('CONTRATO_NUMERO');
+    const el = $('#f_CONTRATO_NUMERO');
+    if (el) el.closest('.campo').classList.add('erro');
+    return false;
+  }
+
+  async function salvar({ silencioso = false } = {}) {
+    if (!exigirNumero()) return false;
+    const ctx = contextoFinal();
+    const corpo = { tipo: estado.tipo, objeto: estado.objeto, pessoa: estado.pessoa, dados: dadosParaSalvar(),
+      contexto: ctx, pendentes: camposFaltando(contexto()).length };
+    const btn = $('#btn-salvar');
+    btn.disabled = true;
+    try {
+      let url = estado.docId ? '/api/documentos/' + estado.docId : '/api/documentos';
+      let r = await fetch(url, { method: estado.docId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+      if (r.status === 404 && estado.docId) { // foi excluído em outra aba: salva como novo
+        r = await fetch('/api/documentos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+      }
+      const res = await r.json().catch(() => ({ ok: false, erro: 'Resposta inválida do servidor.' }));
+      if (!res.ok) throw new Error(res.erro || 'Não foi possível salvar.');
+      estado.docId = res.documento.id;
+      estado.docInfo = res.documento;
+      estado.sujo = false;
+      atualizarDocAtual();
+      salvarRascunhoLocal();
+      if (!silencioso) toast('Salvo: ' + tituloDocumento(res.documento));
+      return true;
+    } catch (err) {
+      toast(err.message || String(err), true);
+      return false;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /** Salva e baixa o documento atual (docx ou pdf). */
+  async function baixarAtual(formato, confirmado = false) {
+    if (!exigirNumero()) return;
+    const faltam = camposFaltando(contexto());
     if (faltam.length && !confirmado) {
       modal({
         tipo: 'aviso', titulo: 'Há campos sem preenchimento',
         corpo: `<p>${faltam.length} campo(s) estão vazios. Eles sairão como <b>XXXXXXXX</b> no documento:</p>
           <ul class="lista-faltam">${faltam.slice(0, 14).map(([k, l]) => `<li><a href="#" data-ir="${k}">${esc(l)}</a></li>`).join('')}
           ${faltam.length > 14 ? `<li>… e mais ${faltam.length - 14}</li>` : ''}</ul>`,
-        acoes: [['Voltar e preencher', 'btn-fantasma', fecharModal], ['Gerar mesmo assim', 'btn-primario', () => { fecharModal(); gerar(true); }]],
+        acoes: [['Voltar e preencher', 'btn-fantasma', fecharModal],
+          ['Baixar mesmo assim', 'btn-primario', () => { fecharModal(); baixarAtual(formato, true); }]],
       });
       return;
     }
-    // vazios -> XXXXXXXX (exceto opcionais)
-    estado.vars.forEach(v => {
-      const d = DERIVADAS[v], c = CAMPO[v];
-      if ((d && d.opcional) || (c && c.opcional)) return;
-      if (ctx[v] === '' || ctx[v] === undefined) ctx[v] = U.SI;
-    });
+    if (!(await salvar({ silencioso: true }))) return;
+    await baixar(estado.docId, formato, $('#btn-' + formato));
+  }
 
-    const btn = $('#btn-gerar');
-    btn.disabled = true; btn.classList.add('girando');
+  async function baixar(id, formato, botao) {
+    if (botao) { botao.disabled = true; botao.classList.add('girando'); }
     try {
-      const r = await fetch('/api/gerar', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tipo: estado.tipo, objeto: estado.objeto, pessoa: estado.pessoa, contexto: ctx, pdf: $('#chk-pdf').checked }),
-      });
-      const res = await r.json().catch(() => ({ ok: false, erro: 'Resposta inválida do servidor.' }));
-      if (!res.ok) throw new Error(res.erro || 'Falha ao gerar.');
-      const links = [`<a class="arquivo-gerado" href="/arquivos/${encodeURIComponent(res.docx)}?baixar=1">${svg('doc')}<span><b>${esc(res.docx)}</b><small>Documento Word — clique para baixar</small></span></a>`];
-      if (res.pdf) links.push(`<a class="arquivo-gerado pdf" href="/arquivos/${encodeURIComponent(res.pdf)}" target="_blank" rel="noopener">${svg('doc')}<span><b>${esc(res.pdf)}</b><small>PDF — clique para abrir</small></span></a>`);
-      modal({
-        tipo: 'ok', titulo: 'Documento gerado!',
-        corpo: links.join('') + (res.aviso_pdf ? `<p class="aviso">${esc(res.aviso_pdf)}</p>` : '') +
-          `<p class="pasta">Salvo em <code>${esc(res.pasta)}</code></p>`,
-        acoes: [['Abrir pasta', 'btn-fantasma', abrirPasta], ['Fechar', 'btn-primario', fecharModal]],
-      });
+      const r = await fetch(`/api/documentos/${id}/baixar/${formato}`);
+      if (!r.ok) {
+        const res = await r.json().catch(() => ({}));
+        throw new Error(res.erro || 'Não foi possível gerar o arquivo.');
+      }
+      const disp = r.headers.get('Content-Disposition') || '';
+      const m = /filename\*=UTF-8''([^;]+)/i.exec(disp) || /filename="?([^";]+)"?/i.exec(disp);
+      const nome = m ? decodeURIComponent(m[1]) : 'documento.' + formato;
+      const url = URL.createObjectURL(await r.blob());
+      const a = Object.assign(document.createElement('a'), { href: url, download: nome });
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      toast('Download iniciado: ' + nome);
     } catch (err) {
-      modal({ tipo: 'erro', titulo: 'Não foi possível gerar', corpo: `<p>${esc(err.message || String(err))}</p>`, acoes: [['Fechar', 'btn-primario', fecharModal]] });
+      modal({ tipo: 'erro', titulo: 'Não foi possível baixar', corpo: `<p>${esc(err.message || String(err))}</p>`, acoes: [['Fechar', 'btn-primario', fecharModal]] });
     } finally {
-      btn.disabled = false; btn.classList.remove('girando');
+      if (botao) { botao.disabled = false; botao.classList.remove('girando'); }
     }
   }
 
-  async function abrirPasta() {
-    try {
-      const r = await (await fetch('/api/abrir-pasta', { method: 'POST' })).json();
-      if (!r.ok) toast('Não foi possível abrir a pasta: ' + (r.pasta || ''), true);
-    } catch (e) { toast('Não foi possível abrir a pasta.', true); }
+  // ------------------------------------------------------------------ documentos salvos
+  function confirmarDescarte(acao) {
+    if (!estado.sujo || !Object.keys(estado.valores).length) { acao(); return; }
+    modal({
+      tipo: 'aviso', titulo: 'Há alterações não salvas',
+      corpo: '<p>As alterações do documento atual ainda não foram salvas. Deseja continuar mesmo assim?</p>',
+      acoes: [['Cancelar', 'btn-fantasma', fecharModal],
+        ['Salvar antes', 'btn-fantasma', async () => { fecharModal(); if (await salvar()) acao(); }],
+        ['Descartar', 'btn-primario', () => { fecharModal(); acao(); }]],
+    });
   }
+
+  function novoDocumento() {
+    confirmarDescarte(() => {
+      estado.valores = {}; estado.si = new Set();
+      estado.docId = null; estado.docInfo = null; estado.sujo = false;
+      fecharGaveta();
+      carregarModelo().then(() => { atualizarDocAtual(); salvarRascunhoLocal(); toast('Novo documento.'); });
+    });
+  }
+
+  async function abrirDocumento(id) {
+    confirmarDescarte(async () => {
+      try {
+        const r = await fetch('/api/documentos/' + id);
+        const doc = await r.json();
+        if (!r.ok) throw new Error(doc.erro || 'Documento não encontrado.');
+        aplicarDados(Object.assign({ tipo: doc.tipo, objeto: doc.objeto, pessoa: doc.pessoa }, doc.dados));
+        estado.docId = doc.id;
+        estado.docInfo = doc;
+        delete estado.docInfo.dados; delete estado.docInfo.contexto;
+        estado.sujo = false;
+        fecharGaveta();
+        await carregarModelo();
+        atualizarDocAtual();
+        salvarRascunhoLocal();
+        toast('Continuando: ' + tituloDocumento(doc));
+      } catch (err) { toast(err.message || String(err), true); }
+    });
+  }
+
+  function excluirDocumento(id, titulo) {
+    modal({
+      tipo: 'erro', titulo: 'Excluir documento?',
+      corpo: `<p><b>${esc(titulo)}</b> será removido do banco de dados. Esta ação não pode ser desfeita.</p>`,
+      acoes: [['Cancelar', 'btn-fantasma', fecharModal], ['Excluir', 'btn-primario', async () => {
+        fecharModal();
+        await fetch('/api/documentos/' + id, { method: 'DELETE' });
+        if (estado.docId === id) { estado.docId = null; estado.docInfo = null; estado.sujo = true; atualizarDocAtual(); salvarRascunhoLocal(); }
+        carregarLista();
+        toast('Documento excluído.');
+      }]],
+    });
+  }
+
+  const ROTULOS = { bens: 'Bens', servicos: 'Serviços', pj: 'PJ', pf: 'PF' };
+  let buscaTimer;
+  async function carregarLista() {
+    const q = $('#busca-docs').value.trim();
+    const lista = $('#lista-docs');
+    try {
+      const docs = await (await fetch('/api/documentos?q=' + encodeURIComponent(q))).json();
+      $('#gaveta-total').textContent = docs.length
+        ? docs.length + (docs.length === 1 ? ' documento' : ' documentos') + (q ? ' encontrados' : '')
+        : (q ? 'Nada encontrado' : 'Nenhum documento salvo');
+      if (!docs.length) {
+        lista.innerHTML = `<div class="gaveta-vazia">${svg('doc')}<p>${q ? 'Nenhum documento corresponde à busca.'
+          : 'Os documentos aparecem aqui quando você clica em <b>Salvar</b> ou baixa um arquivo. Para salvar, basta informar o nº do contrato.'}</p></div>`;
+        return;
+      }
+      lista.innerHTML = docs.map(d => {
+        const titulo = tituloDocumento(d);
+        const status = d.pendentes ? `<span class="chip chip-pendente">${d.pendentes} pendente${d.pendentes > 1 ? 's' : ''}</span>`
+          : '<span class="chip chip-ok">Completo</span>';
+        return `<article class="doc-card${d.id === estado.docId ? ' atual' : ''}" data-id="${d.id}">
+          <div class="doc-card-topo">
+            <h3>${esc(titulo)}</h3>${status}
+          </div>
+          <p class="doc-card-sub">${esc(d.contratado || 'Contratado não informado')}</p>
+          ${d.objeto_desc ? `<p class="doc-card-obj">${esc(d.objeto_desc)}</p>` : ''}
+          <div class="doc-card-meta">
+            <span class="chip">${esc(d.orgao || 'CBMPA')}</span><span class="chip">${ROTULOS[d.objeto] || ''}</span><span class="chip">${ROTULOS[d.pessoa] || ''}</span>
+            <span class="doc-card-data">Atualizado em ${esc(dataHora(d.atualizado_em))}</span>
+          </div>
+          <div class="doc-card-acoes">
+            <button class="btn btn-fantasma btn-p" data-acao="abrir">${d.id === estado.docId ? 'Em edição' : 'Continuar / editar'}</button>
+            <button class="btn btn-fantasma btn-p" data-acao="docx">DOCX</button>
+            <button class="btn btn-fantasma btn-p" data-acao="pdf">PDF</button>
+            <button class="btn btn-fantasma btn-p btn-perigo" data-acao="excluir" title="Excluir">${svg('lixo')}</button>
+          </div>
+        </article>`;
+      }).join('');
+    } catch (e) {
+      lista.innerHTML = '<div class="gaveta-vazia"><p>Não foi possível carregar os documentos.</p></div>';
+    }
+  }
+
+  function abrirGaveta() { $('#gaveta').hidden = false; carregarLista(); setTimeout(() => $('#busca-docs').focus(), 50); }
+  function fecharGaveta() { $('#gaveta').hidden = true; }
 
   // ------------------------------------------------------------------ modal / toast
   function modal({ tipo, titulo, corpo, acoes }) {
@@ -830,6 +1014,8 @@
       if (!b || b.classList.contains('ativo')) return;
       $$('button', g).forEach(x => x.classList.toggle('ativo', x === b));
       estado[g.dataset.grupo] = b.dataset.valor;
+      estado.sujo = true;
+      atualizarDocAtual();
       salvarRascunho();
       carregarModelo();
     }));
@@ -853,14 +1039,37 @@
       if (key) irParaCampo(key);
     });
 
-    $('#btn-gerar').addEventListener('click', () => gerar(false));
+    $('#btn-salvar').addEventListener('click', () => salvar());
+    $('#btn-docx').addEventListener('click', () => baixarAtual('docx'));
+    $('#btn-pdf').addEventListener('click', () => baixarAtual('pdf'));
+    $('#btn-novo').addEventListener('click', novoDocumento);
+    $('#btn-documentos').addEventListener('click', abrirGaveta);
+    $('#gaveta-fechar').addEventListener('click', fecharGaveta);
+    $('#gaveta').addEventListener('click', e => {
+      if (e.target.id === 'gaveta') { fecharGaveta(); return; }
+      const b = e.target.closest('[data-acao]');
+      if (!b) return;
+      const card = b.closest('.doc-card');
+      const id = Number(card.dataset.id);
+      const acao = b.dataset.acao;
+      if (acao === 'abrir') { if (id === estado.docId) fecharGaveta(); else abrirDocumento(id); }
+      else if (acao === 'excluir') excluirDocumento(id, card.querySelector('h3').textContent);
+      else baixar(id, acao, b);
+    });
+    $('#busca-docs').addEventListener('input', () => { clearTimeout(buscaTimer); buscaTimer = setTimeout(carregarLista, 200); });
+    document.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); salvar(); }
+    });
+    window.addEventListener('beforeunload', e => {
+      if (estado.sujo && estado.docId) { e.preventDefault(); e.returnValue = ''; }
+    });
     $('#btn-exportar').addEventListener('click', exportar);
     $('#btn-importar').addEventListener('click', () => $('#arquivo-importar').click());
     $('#arquivo-importar').addEventListener('change', e => { if (e.target.files[0]) importar(e.target.files[0]); e.target.value = ''; });
     $('#btn-limpar').addEventListener('click', () => modal({
       tipo: 'aviso', titulo: 'Limpar todos os campos?', corpo: '<p>Os dados preenchidos serão apagados. Se quiser guardá-los, use <b>Exportar</b> antes.</p>',
       acoes: [['Cancelar', 'btn-fantasma', fecharModal], ['Limpar', 'btn-primario', () => {
-        estado.valores = {}; estado.si = new Set(); fecharModal(); montarFormulario(); renderPrevia(); salvarRascunho(); toast('Campos limpos.');
+        estado.valores = {}; estado.si = new Set(); estado.sujo = true; atualizarDocAtual(); fecharModal(); montarFormulario(); renderPrevia(); salvarRascunho(); toast('Campos limpos.');
       }]],
     }));
     $('#modal').addEventListener('click', e => {
@@ -868,7 +1077,10 @@
       const ir = e.target.closest('[data-ir]');
       if (ir) { e.preventDefault(); fecharModal(); irParaCampo(ir.dataset.ir); }
     });
-    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#modal').hidden) fecharModal(); });
+    document.addEventListener('keydown', e => {
+      if (e.key !== 'Escape') return;
+      if (!$('#modal').hidden) fecharModal(); else if (!$('#gaveta').hidden) fecharGaveta();
+    });
 
     $('#chk-destacar').addEventListener('change', e => $('#previa-doc').classList.toggle('destacar', e.target.checked));
     $('#zoom-menos').addEventListener('click', () => { estado.zoom = Math.max(0.3, (estado.zoom || 1) - 0.1); ajustarZoom(false); });
@@ -878,6 +1090,7 @@
     let rz;
     window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => ajustarZoom(true), 150); });
 
+    atualizarDocAtual();
     carregarModelo();
   }
 

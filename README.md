@@ -28,8 +28,16 @@ atualizado em tempo real.
    (bens ou serviços) e o **contratado** (pessoa jurídica ou física). Preencha os
    campos; o formulário mostra só os campos que o modelo escolhido usa.
 
-4. Clique em **Gerar documento**. O `.docx` (e o `.pdf`) ficam na pasta
-   `Contratos_Gerados`.
+4. Use os botões da barra inferior:
+   - **Salvar** (ou Ctrl+S): grava o andamento no banco de dados para continuar
+     depois. Basta ter o **nº do contrato** preenchido; o resto pode ficar
+     pendente até as informações chegarem.
+   - **Baixar DOCX** / **Baixar PDF**: salva e faz o download pelo navegador.
+     Nenhum arquivo fica gravado em pasta do computador.
+
+5. Em **Documentos salvos** (no topo) ficam todos os documentos: busque por nº do
+   contrato, contratado ou objeto, veja quantos campos ainda estão pendentes,
+   continue a edição, baixe em DOCX ou PDF ou exclua.
 
 ### Recursos
 
@@ -43,19 +51,26 @@ atualizado em tempo real.
 - **Rascunho automático** no navegador e **Exportar/Importar** dos dados em
   `.json` (útil para reaproveitar os dados de um contrato em um termo aditivo).
 
+### Banco de dados
+
+Os documentos ficam em `dados/minutas.db` (SQLite, já incluso no Python). Para
+fazer backup, copie esse arquivo. A pasta `dados/` não vai para o git, para não
+publicar dados de contratos.
+
 ### PDF
 
 O PDF é feito pelo Microsoft Word (via `docx2pdf`). Sem o Word, o programa usa
-o LibreOffice, se estiver instalado. Se nenhum dos dois existir, só o `.docx` é
-gerado.
+o LibreOffice, se estiver instalado, no computador onde o programa roda. Se
+nenhum dos dois existir, só o download em `.docx` funciona.
 
 ## Estrutura
 
 | Caminho | Conteúdo |
 | --- | --- |
-| `app.py` | Servidor local (Flask): preenche o modelo, salva e converte para PDF |
+| `app.py` | Servidor local (Flask): salva os documentos e gera os downloads em DOCX/PDF |
+| `banco.py` | Banco de dados SQLite dos documentos salvos |
 | `conversor_preview.py` | Converte o modelo `.docx` em HTML para a prévia |
-| `config.json` | Órgãos (CNPJ/UASG), autoridade signatária, pasta de saída e porta |
+| `config.json` | Órgãos (CNPJ/UASG), autoridade signatária e porta |
 | `modelos/` | Os 12 modelos `.docx` com os campos `{{ ... }}` |
 | `templates/`, `static/` | Interface (HTML, CSS, JavaScript e logo) |
 

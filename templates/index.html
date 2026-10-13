@@ -17,6 +17,9 @@
       </div>
     </div>
     <div class="topo-acoes">
+      <button class="btn btn-azul" id="btn-documentos" title="Ver, continuar e baixar documentos salvos">
+        <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <span>Documentos salvos</span></button>
       <button class="btn btn-fantasma" id="btn-importar" title="Carregar dados salvos em arquivo .json">
         <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
         <span>Importar</span></button>
@@ -68,6 +71,10 @@
               </div>
             </div>
           </div>
+          <div class="doc-atual" id="doc-atual">
+            <div class="doc-atual-texto"><span class="doc-atual-ponto"></span><span id="doc-atual-desc">Novo documento — ainda não salvo</span></div>
+            <button type="button" class="btn-link" id="btn-novo">+ Novo documento</button>
+          </div>
           <div class="progresso">
             <div class="progresso-barra"><span id="progresso-preench"></span></div>
             <span class="progresso-texto" id="progresso-texto">0 de 0 campos</span>
@@ -78,11 +85,17 @@
       </div>
 
       <div class="barra-gerar">
-        <label class="check-pdf"><input type="checkbox" id="chk-pdf" checked> Também gerar PDF</label>
-        <button class="btn btn-primario" id="btn-gerar">
-          <svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 14l2 2 4-4"/></svg>
-          Gerar documento
-        </button>
+        <button class="btn btn-fantasma" id="btn-salvar" title="Salvar o andamento (Ctrl+S). É preciso informar o nº do contrato.">
+          <svg viewBox="0 0 24 24"><path d="M5 3h11l3 3v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M7 3v5h8V3M7 21v-7h10v7"/></svg>
+          Salvar</button>
+        <div class="baixar-grupo">
+          <button class="btn btn-primario" id="btn-docx" data-formato="docx" title="Salvar e baixar em Word">
+            <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+            Baixar DOCX</button>
+          <button class="btn btn-primario" id="btn-pdf" data-formato="pdf" title="Salvar e baixar em PDF">
+            <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+            Baixar PDF</button>
+        </div>
       </div>
     </section>
 
@@ -111,6 +124,24 @@
       </div>
     </section>
   </main>
+
+  <!-- ===================== DOCUMENTOS SALVOS ===================== -->
+  <div class="gaveta-fundo" id="gaveta" hidden>
+    <aside class="gaveta" role="dialog" aria-modal="true" aria-labelledby="gaveta-titulo">
+      <div class="gaveta-cab">
+        <div>
+          <h2 id="gaveta-titulo">Documentos salvos</h2>
+          <p id="gaveta-total">Carregando…</p>
+        </div>
+        <button class="gaveta-fechar" id="gaveta-fechar" title="Fechar">×</button>
+      </div>
+      <div class="gaveta-busca">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="busca-docs" type="search" placeholder="Buscar por nº do contrato, contratado ou objeto">
+      </div>
+      <div class="gaveta-lista" id="lista-docs"></div>
+    </aside>
+  </div>
 
   <!-- ===================== MODAIS ===================== -->
   <div class="modal-fundo" id="modal" hidden>
